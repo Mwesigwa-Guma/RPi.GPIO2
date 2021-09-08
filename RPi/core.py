@@ -34,6 +34,7 @@ pin_to_gpio_rev3 = [
 VERSION     = "0.7.0"
 
 # [API] Hardware information
+"""
 RPI_INFO    = {
     "P1_REVISION":      3,
     "REVISION":         "a22082",
@@ -44,6 +45,19 @@ RPI_INFO    = {
 }
 # [API] Depcrecated source of hardware information
 RPI_REVISION = RPI_INFO["P1_REVISION"]
+"""
+
+def rpi_info():
+    try:
+        f = open("/proc/device-tree/model", "r")
+        return f.read()
+    except IOError:
+        print("You might not be running this program on a raspberry pi!")
+
+
+RPI_INFO = rpi_info()
+
+RPI_REVISION = rpi_info()
 
 # [API] Pin numbering modes
 UNKNOWN     = -1
