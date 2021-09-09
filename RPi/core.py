@@ -1211,6 +1211,7 @@ class PWM:
 
 #copy and paste HardwarePWM class here and test it first before integrating different components in the existing code
 
+"""
 class HardwarePWMException(Exception):
     pass
 
@@ -1320,7 +1321,7 @@ class HardwarePWM:
 
         self.change_duty_cycle(original_duty_cycle)
 
-
+"""
 
 # === Library initialization ===
 
