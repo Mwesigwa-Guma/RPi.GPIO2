@@ -71,8 +71,12 @@ I2C         = 42
 HARD_PWM    = 43
 
 # [API] Output modes
-LOW  = gpiod.Line.ACTIVE_LOW
-HIGH = gpiod.Line.ACTIVE_HIGH
+try:
+    LOW  = gpiod.Line.ACTIVE_LOW
+    HIGH = gpiod.Line.ACTIVE_HIGH
+except AttributeError:
+    LOW = gpiod.LINE_REQ_FLAG_ACTIVE_LOW
+    HIGH = 0
 
 _LINE_ACTIVE_STATE_COSNT_TO_FLAG = {
     LOW: gpiod.LINE_REQ_FLAG_ACTIVE_LOW,
@@ -87,12 +91,16 @@ def active_flag(const):
 
 # [API] Software pull up/pull down resistor modes
 # We map RPi.GPIO PUD modes to libgpiod PUD constants
-PUD_OFF     = gpiod.Line.BIAS_AS_IS
+try:
+    PUD_OFF     = gpiod.Line.BIAS_AS_IS
+except AttributeError:
+    PUD_OFF     = gpiod.Line.BIAS_UNKNOWN
+
 PUD_UP      = gpiod.Line.BIAS_PULL_UP
 PUD_DOWN    = gpiod.Line.BIAS_PULL_DOWN
 
 # We extend RPi.GPIO with the ability to explicitly disable pull up/down behavior
-PUD_DISABLE = gpiod.Line.BIAS_DISABLE
+PUD_DISABLE = gpiod.Line.BIAS_DISABLED
 
 # libgpiod uses distinct flag values for each line bias constant returned by
 # the gpiod.Line.bias() method. To simplify our translation, we map the latter
@@ -101,7 +109,7 @@ _LINE_BIAS_CONST_TO_FLAG = {
     PUD_OFF:    0,  # This behavior is indicated with the default flag
     PUD_UP:     gpiod.LINE_REQ_FLAG_BIAS_PULL_UP,
     PUD_DOWN:   gpiod.LINE_REQ_FLAG_BIAS_PULL_DOWN,
-    PUD_DISABLE: gpiod.LINE_REQ_FLAG_BIAS_DISABLE,
+    PUD_DISABLE: gpiod.LINE_REQ_FLAG_BIAS_DISABLED,
 }
 
 
@@ -207,7 +215,7 @@ class _Line:
         if line_is_poll(self.channel):
             line_kill_poll(self.channel)
 
-        if self.line.is_requested():
+        if self.line.is_used():
             self.line.release()
         # We don't want to affect bouncetime handling if channel is used again
         self.dutycycle = -1
@@ -395,7 +403,7 @@ def chip_init():
 
     # This is hardcoded for now but that may change soon (or not)
     try:
-        _State.chip = gpiod.Chip("gpiochip0")
+        _State.chip = gpiod.Chip("/dev/gpiochip0")
     except PermissionError:
         print("Unable to access /dev/gpiochip0. Are you sure you have permission?")
         sys.exit()
@@ -473,8 +481,11 @@ def line_is_active(channel):
 
 
 def line_get_active_state(channel):
-    return _State.lines[channel].line.active_state()
-
+    #return _State.lines[channel].line.active_state()
+    if _State.lines[channel].line.is_active_low():
+        return LOW
+    else:
+        return HIGH
 
 def line_get_direction(channel):
     return _LINE_MODE_TO_DIR_CONST[line_get_mode(channel)]
