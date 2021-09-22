@@ -12,6 +12,7 @@ import sys
 import time
 from threading import Thread, Event, Lock
 import atexit
+import pdb
 
 # BCM to Board mode conversion table for Raspbery Pi 3 Model B
 pin_to_gpio_rev3 = [
@@ -34,8 +35,7 @@ pin_to_gpio_rev3 = [
 VERSION     = "0.7.0"
 
 # [API] Hardware information
-"""
-RPI_INFO    = {
+RPI3_INFO    = {
     "P1_REVISION":      3,
     "REVISION":         "a22082",
     "TYPE":             "Pi 3 Model B",
@@ -43,9 +43,16 @@ RPI_INFO    = {
     "PROCESSOR"         "BCM2837",
     "RAM":              "1G",
 }
-# [API] Depcrecated source of hardware information
-RPI_REVISION = RPI_INFO["P1_REVISION"]
-"""
+
+RPI4_INFO   = {
+    "P1_REVISION":      4,
+    "REVISION":         "b03112",
+    "TYPE":             "Pi 4 model B",
+    "MANFACTURER":      "Sony"
+    "PROCESSOR"         "BCM2711",
+    "RAM":              "2G"
+
+}
 
 def rpi_info():
     try:
@@ -56,8 +63,13 @@ def rpi_info():
 
 
 RPI_INFO = rpi_info()
+RPI_REVISION = None
 
-RPI_REVISION = rpi_info()
+def rpi_revision():
+    if RPI_INFO == "Raspberry Pi 4 Model B Rev 1.2":
+        RPI_REVISION = RPI4_INFO["P1_REVISION"]
+    else:
+        RPI_REVISION = RPI3_INFO["P1_REVISION"]
 
 # [API] Pin numbering modes
 UNKNOWN     = -1
@@ -72,14 +84,14 @@ HARD_PWM    = 43
 
 # [API] Output modes
 try:
-    LOW  = gpiod.Line.ACTIVE_LOW
-    HIGH = gpiod.Line.ACTIVE_HIGH
+    LOW  = gpiod.line.ACTIVE_LOW
+    HIGH = gpiod.line.ACTIVE_HIGH
 except AttributeError:
     LOW = gpiod.LINE_REQ_FLAG_ACTIVE_LOW
     HIGH = 0
 
 _LINE_ACTIVE_STATE_COSNT_TO_FLAG = {
-    LOW: gpiod.LINE_REQ_FLAG_ACTIVE_LOW,
+    LOW: gpiod.libgpiod.GPIOD_LINE_REQUEST_FLAG_ACTIVE_LOW,
     HIGH: 0,  # Active High is set by the default flag
 }
 
@@ -88,28 +100,27 @@ _LINE_ACTIVE_STATE_COSNT_TO_FLAG = {
 def active_flag(const):
     return _LINE_ACTIVE_STATE_COSNT_TO_FLAG[const]
 
-
 # [API] Software pull up/pull down resistor modes
 # We map RPi.GPIO PUD modes to libgpiod PUD constants
 try:
-    PUD_OFF     = gpiod.Line.BIAS_AS_IS
+    PUD_OFF     = gpiod.line.BIAS_AS_IS
 except AttributeError:
     PUD_OFF     = gpiod.Line.BIAS_UNKNOWN
 
-PUD_UP      = gpiod.Line.BIAS_PULL_UP
-PUD_DOWN    = gpiod.Line.BIAS_PULL_DOWN
+PUD_UP      = gpiod.line.BIAS_PULL_UP
+PUD_DOWN    = gpiod.line.BIAS_PULL_DOWN
 
 # We extend RPi.GPIO with the ability to explicitly disable pull up/down behavior
-PUD_DISABLE = gpiod.Line.BIAS_DISABLED
+PUD_DISABLE = gpiod.line.BIAS_DISABLE
 
 # libgpiod uses distinct flag values for each line bias constant returned by
 # the gpiod.Line.bias() method. To simplify our translation, we map the latter
 # to the former with the following dictionary
 _LINE_BIAS_CONST_TO_FLAG = {
     PUD_OFF:    0,  # This behavior is indicated with the default flag
-    PUD_UP:     gpiod.LINE_REQ_FLAG_BIAS_PULL_UP,
-    PUD_DOWN:   gpiod.LINE_REQ_FLAG_BIAS_PULL_DOWN,
-    PUD_DISABLE: gpiod.LINE_REQ_FLAG_BIAS_DISABLED,
+    PUD_UP:     gpiod.libgpiod.GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP,
+    PUD_DOWN:   gpiod.libgpiod.GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_DOWN,
+    PUD_DISABLE: gpiod.libgpiod.GPIOD_LINE_REQUEST_FLAG_BIAS_DISABLE,
 }
 
 
@@ -120,14 +131,14 @@ def bias_flag(const):
 
 # Internal line modes
 _line_mode_none     = 0
-_line_mode_in       = gpiod.LINE_REQ_DIR_IN
-_line_mode_out      = gpiod.LINE_REQ_DIR_OUT
-_line_mode_falling  = gpiod.LINE_REQ_EV_FALLING_EDGE
-_line_mode_rising   = gpiod.LINE_REQ_EV_RISING_EDGE
-_line_mode_both     = gpiod.LINE_REQ_EV_BOTH_EDGES
+_line_mode_in       = gpiod.libgpiod.GPIOD_LINE_REQUEST_DIRECTION_INPUT
+_line_mode_out      = gpiod.libgpiod.GPIOD_LINE_REQUEST_DIRECTION_OUTPUT
+_line_mode_falling  = gpiod.libgpiod.GPIOD_LINE_REQUEST_EVENT_FALLING_EDGE
+_line_mode_rising   = gpiod.libgpiod.GPIOD_LINE_REQUEST_EVENT_RISING_EDGE
+_line_mode_both     = gpiod.libgpiod.GPIOD_LINE_REQUEST_EVENT_BOTH_EDGES
 # As of yet unused and unexposed
 # TODO investigate AS_IS kernel behavior
-_line_mode_as_is    = gpiod.LINE_REQ_DIR_AS_IS
+_line_mode_as_is    = gpiod.libgpiod.GPIOD_LINE_REQUEST_DIRECTION_AS_IS
 
 
 # [API] Line event types
@@ -162,6 +173,34 @@ _LINE_MODE_TO_DIR_CONST = {
 _line_thread_none       = 0
 _line_thread_poll       = 1 << 1
 _line_thread_pwm        = 1 << 2
+_line_thread_hardPWM    = 1 << 3
+
+
+# Hardware PWM paths 
+
+PWMCHIPPATH = "/sys/class/pwm/pwmchip0"
+EXPORT_PATH = PWMCHIPPATH + "/export"
+UNEXPORT_PATH = PWMCHIPPATH + "/unexport"
+
+PWMINFO = {
+    18 :    {
+        "EXPORTVALUE":  0,
+        "PWMPATH":      "/sys/class/pwm/pwmchip0/pwm0",
+        "ENABLE":       "/sys/class/pwm/pwmchip0/pwm0/enable",
+        "PERIOD":       "/sys/class/pwm/pwmchip0/pwm0/period",
+        "DUTYCYCLE":    "/sys/class/pwm/pwmchip0/pwm0/duty_cycle"
+    },
+
+    19 :    {
+        "EXPORTVALUE":  1,
+        "PWMPATH":      "/sys/class/pwm/pwmchip0/pwm1",
+        "ENABLE":       "/sys/class/pwm/pwmchip0/pwm1/enable",
+        "PERIOD":       "/sys/class/pwm/pwmchip0/pwm1/period",
+        "DUTYCYCLE":    "/sys/class/pwm/pwmchip0/pwm1/duty_cycle"
+        
+    }
+}
+
 
 # === Internal Data ===
 
@@ -210,6 +249,7 @@ class _Line:
         self.thread.kill()
         self.thread = None
         self.thread_type = _line_thread_none
+        echo(0, PWMINFO[self.channel]["ENABLE"])
 
     def cleanup(self):
         if line_is_poll(self.channel):
@@ -351,7 +391,6 @@ def channel_fix_and_validate_bcm(channel):
 def channel_fix_and_validate_board(channel):
     if channel < 1 or channel > len(pin_to_gpio_rev3) - 1:
         raise ValueError("The channel sent is invalid on a Raspberry Pi")
-
     # Use lookup table from RPi.GPIO
     channel = pin_to_gpio_rev3[channel]
     if channel == -1:
@@ -403,7 +442,7 @@ def chip_init():
 
     # This is hardcoded for now but that may change soon (or not)
     try:
-        _State.chip = gpiod.Chip("/dev/gpiochip0")
+        _State.chip = gpiod.chip("/dev/gpiochip0")
     except PermissionError:
         print("Unable to access /dev/gpiochip0. Are you sure you have permission?")
         sys.exit()
@@ -411,7 +450,7 @@ def chip_init():
 
 
 def chip_close():
-    _State.chip.close()
+    _State.chip.reset()
     _State.chip = None
 
 
@@ -437,7 +476,7 @@ def chip_close_if_open():
 
 def chip_get_num_lines():
     chip_init_if_needed()
-    return _State.chip.num_lines()
+    return _State.chip.num_lines
 
 
 def chip_destroy():
@@ -745,8 +784,8 @@ def add_event_callback(channel, callback):
 
     {compat} we do not require that the channel be setup as an input
     """
-
     # This implements BOARD mode
+
     channel = channel_fix_and_validate(channel)
 
     if not line_is_poll(channel):
@@ -845,8 +884,8 @@ def event_detected(channel):
     Returns True if an edge has occurred on a given GPIO.  You need to enable edge detection using add_event_detect() first.
     channel - either board pin number or BCM number depending on which mode is set."
     """
-
-    # This implements BOARD mode
+    
+    #This implements BOARD mode
     channel = channel_fix_and_validate(channel)
 
     if channel in _State.event_ls:
@@ -861,7 +900,6 @@ def getactive_state(channel):
     Get the active_state of an active channel
     Returns HIGH or LOW if the channel is active and -1 otherwise
     """
-
     channel = channel_fix_and_validate(channel)
 
     if line_is_active(channel):
@@ -876,7 +914,6 @@ def getbias(channel):
     Returns PUD_OFF, PUD_DOWN, PUD_UP, or PUD disabled if the channel is
         active or just PUD_OFF if the channel is not active.
     """
-
     channel = channel_fix_and_validate(channel)
 
     if line_is_active(channel):
@@ -891,7 +928,6 @@ def getdirection(channel):
     Returns OUT if the channel is in an output mode, IN if the channel is in an input mode,
     and -1 otherwise
     """
-
     channel = channel_fix_and_validate(channel)
     return line_get_direction(channel)
 
@@ -901,7 +937,6 @@ def getmode():
     Get numbering mode used for channel numbers.
     Returns BOARD, BCM or None
     """
-
     return _State.mode if _State.mode else None
 
 
@@ -912,7 +947,6 @@ def gpio_function(channel):
 
     {compat} This is a stateless function that will return a constant value for every pin
     """
-
     # This implements BOARD mode
     channel = channel_fix_and_validate(channel)
 
@@ -934,7 +968,6 @@ def input(channel):
     Input from a GPIO channel.  Returns HIGH=1=True or LOW=0=False
     # channel - either board pin number or BCM number depending on which mode is set.
     """
-
     # This implements BOARD mode
     channel = channel_fix_and_validate(channel)
 
@@ -1002,7 +1035,6 @@ def remove_event_detect(channel):
     Remove edge detection for a particular GPIO channel
     channel - either board pin number or BCM number depending on which mode is set.
     """
-
     # This implements BOARD mode
     channel = channel_fix_and_validate(channel)
 
@@ -1034,7 +1066,6 @@ def setbias(channel, bias):
     """
     Set bias of an active channel
     """
-
     channel = channel_fix_and_validate(channel)
 
     if bias not in [PUD_OFF, PUD_UP, PUD_DOWN, PUD_DISABLE]:
@@ -1052,7 +1083,6 @@ def setdirection(channel, direction):
     """
     Set direction of an active channel
     """
-
     channel = channel_fix_and_validate(channel)
 
     if direction != IN and direction != OUT:
@@ -1093,7 +1123,6 @@ def setup(channel, direction, pull_up_down=PUD_OFF, initial=None):
         [pull_up_down] - PUD_OFF (default), PUD_UP or PUD_DOWN
         [initial]      - Initial value for an output channel
     """
-
     # Channel must contain only integral data
     if not is_all_ints(channel):
         raise ValueError("Channel must be an integer or list/tuple of integers")
@@ -1110,7 +1139,7 @@ def setup(channel, direction, pull_up_down=PUD_OFF, initial=None):
 
     if pull_up_down not in [PUD_OFF, PUD_UP, PUD_DOWN, PUD_DISABLE]:
         raise ValueError("Invalid value for pull_up_down - should be either PUD_OFF, PUD_UP, PUD_DOWN, or PUD_DISABLE")
-
+    
     # Convert tuples to lists to make them writable for validations of channels
     if isinstance(channel, tuple):
         channel = [c for c in channel]
@@ -1152,7 +1181,6 @@ def wait_for_edge(channel, edge, bouncetime=None, timeout=0):
 
     {compat} bouncetime units are in seconds. this is subject to change
     """
-
     # Running this function before setup is allowed but the initial pin value is undefined
     # RPi.GPIO requires one to setup a pin as input before using it for event detection,
     # while libgpiod provides an interface that keeps the two mutually exclusive. We get around
@@ -1201,7 +1229,7 @@ class PWM:
         """
         if dutycycle < 0.0 or dutycycle > 100.0:
             raise ValueError("dutycycle must have a value from 0.0 to 100.0")
-
+        
         return line_pwm_start(self.channel, dutycycle)
 
     def stop(self):
@@ -1225,128 +1253,162 @@ class PWM:
         Change the frequency
         frequency - frequency in Hz (freq > 1.0)
         """
-
         if frequency <= 0.0:
             raise ValueError("frequency must be greater than 0.0")
 
         line_pwm_set_frequency(self.channel, frequency)
 
 
-# hardware pwm 
+# Hardware PWM
 
-#copy and paste HardwarePWM class here and test it first before integrating different components in the existing code
-
-"""
-class HardwarePWMException(Exception):
-    pass
-
-class HardwarePWM:
-    
-    Control the hardware PWM on the Raspberry Pi. Need to first add `dtoverlay=pwm-2chan` to `/boot/config.txt`.
-    pwm0 is GPIO pin 18 is physical pin 12
-    pwm1 is GPIO pin 19 is physical pin 13
-    Example
-    ----------
-    >pwm = HardwarePWM(0, hz=20)
-    >pwm.start(100)
-    >
-    >pwm.change_duty_cycle(50)
-    >pwm.change_frequency(50)
-    >
-    >pwm.stop()
-    Notes
-    --------
-     - If you get "write error: Invalid argument" - you have to set duty_cycle to 0 before changing period
-     - /sys/ pwm interface described here: https://jumpnowtek.com/rpi/Using-the-Raspberry-Pi-Hardware-PWM-timers.html
-    
-    _duty_cycle: float
-    _hz: float
-    chippath: str = "/sys/class/pwm/pwmchip0"
-
-    def __init__(self, pwm_channel: int, hz: float):
-
-        if pwm_channel not in {0, 1}:
-            raise HardwarePWMException("Only channel 0 and 1 are available on the Rpi.")
-
-        self.pwm_channel = pwm_channel
-        self.pwm_dir = f"{self.chippath}/pwm{self.pwm_channel}"
-        self._duty_cycle = 0
-
-        if not self.is_overlay_loaded():
-            raise HardwarePWMException(
-                "Need to add 'dtoverlay=pwm-2chan' to /boot/config.txt and reboot"
-            )
-        if not self.is_export_writable():
-            raise HardwarePWMException(f"Need write access to files in '{self.chippath}'")
-        if not self.does_pwmX_exists():
-            self.create_pwmX()
-
+def hardPWM_thread(channel):
+    try:
         while True:
-            try:
-                self.change_frequency(hz)
+            begin_critical_section(channel, msg="do hardPWM")
+            if line_thread_should_die(channel):
+                end_critical_section(channel, msg="do hardPWM exit")
                 break
-            except PermissionError:
-                continue
+            
+            per = calculate_period(line_pwm_get_frequency(channel))
+            per_freq = int(per)
+            dc = int(per * line_pwm_get_dutycycle(channel) / 100)
+            
+
+            if (int(cat(PWMINFO[channel]["PERIOD"])) != per_freq) or (int(cat(PWMINFO[channel]["DUTYCYCLE"])) != dc):
+                echo(0, PWMINFO[channel]["DUTYCYCLE"])
+                echo (per_freq, PWMINFO[channel]["PERIOD"])
+                echo(dc, PWMINFO[channel]["DUTYCYCLE"])
+            
+            if not int(cat(PWMINFO[channel]["ENABLE"])):
+                echo(1, PWMINFO[channel]["ENABLE"])
+
+            end_critical_section(channel, msg="do pwm")
+            time.sleep(0.10)
+
+    except(ValueError, PermissionError, KeyboardInterrupt):
+        end_critical_section(channel, msg="do hardwarePWM sudden exit")
+
+def line_hardPWM_stop(channel):
+    if line_is_hardPWM(channel):
+        begin_critical_section(channel, msg="hardPWM stop")
+        _State.lines[channel].thread_stop()
+        end_critical_section(channel, msg="hardPWM stop")
+
+def line_hardPWM_start(channel, dutycycle):
+    if line_is_hardPWM(channel) and _State.lines[channel].frequency != -1:
+        begin_critical_section(channel, msg="hardPWM start")
+
+        line_pwm_set_dutycycle(channel, dutycycle)
+        _State.lines[channel].thread_start(_line_thread_hardPWM, args=(channel,))
+
+        end_critical_section(channel, msg="hardPWM start")
+        return line_is_hardPWM(channel)
+    else:
+        warn("invalid call to start(). Did you call HardwarePWM.__init__() on this channel?")
+        return False
+
+def validate_pwmchip0_exists():
+    return os.path.isdir(PWMCHIPPATH)
+
+def echo (message: int, filename: str):
+    with open(filename, "w") as file:
+        file.write(f"{message}")
+
+def cat (filename: str):
+    with open(filename, "r") as file:
+        return file.read()
 
 
-    def is_overlay_loaded(self):
-        return os.path.isdir(self.chippath)
+def init_hardPWM(channel):
+    if not validate_pwmchip0_exists():
+        raiseRuntimeError("Add 'dtoverlay=pwm-2chan' to /boot/config.txt and reboot")
 
-    def is_export_writable(self):
-        return os.access(os.path.join(self.chippath, "export"), os.W_OK)
+    try:
+        if not os.path.isdir(PWMINFO[channel]["PWMPATH"]):
+            echo(PWMINFO[channel]["EXPORTVALUE"], EXPORT_PATH)
+            echo(10000000, PWMINFO[channel]["PERIOD"])
+            echo(8000000, PWMINFO[channel]["DUTYCYCLE"])
 
-    def does_pwmX_exists(self):
-        return os.path.isdir(self.pwm_dir)
+    except PermissionError:
+        print(f"Unable to access {EXPORT_PATH}. Are you sure you have permission?\n")
+        sys.exit()
 
-    def echo(self, message: int, file: str):
-        with open(file, "w") as f:
-            f.write(f"{message}\n")
 
-    def create_pwmX(self):
-        self.echo(self.pwm_channel, os.path.join(self.chippath, "export"))
+def channel_fix_and_validate_hardPWM(channel_raw):
+    
+    channel = 0
 
-    def start(self, initial_duty_cycle: float):
-        self.change_duty_cycle(initial_duty_cycle)
-        self.echo(1, os.path.join(self.pwm_dir, "enable"))
+    # validate BCM or BOARD mode
+    if _State.mode == UNKNOWN:
+        raise RuntimeError("Please set pin numbering mode using GPIO.setmode(GPIO.BOARD) or GPIO.setmode(GPIO.BCM)")
+    elif _State.mode == BCM:
+        channel = channel_fix_and_validate_bcm(channel_raw)
+    elif _State.mode == BOARD:
+        channel = channel_fix_and_validate_board(channel_raw)
+
+    if not (channel in PWMINFO):
+        raise ValueError("Invalid channel for Hardware PWM!")
+
+    if line_get_mode(channel) != _line_mode_none:
+        raise RuntimeError("Channel is busy. Try another GPIO pin")
+
+    _State.lines[channel].mode = _line_mode_out
+    DCprint(channel, "line mode set to", _State.lines[channel].mode)
+    
+    _State.lines[channel].thread_type = _line_thread_hardPWM
+
+    init_hardPWM(channel)
+
+    return channel
+
+def calculate_period(frequency):
+    per = 1/float(frequency)
+    per *= 1000
+    per *= 1_000_1000
+
+    return per
+
+def line_is_hardPWM(channel):
+    DCprint(channel, "checking if channel is hardPWM:", _State.lines[channel].thread_type == _line_thread_hardPWM)
+    return _State.lines[channel].thread_type == _line_thread_hardPWM
+
+
+# declare class here 
+class HardwarePWM:
+    def __init__(self, channel, frequency):
+        self.channel = channel_fix_and_validate_hardPWM(channel) 
+
+        if frequency <= 0.0:
+            raise ValueError("frequency must be greater 0.0")
+        
+        self.ChangeFrequency(frequency)
+
+    def start (self, dutycycle):
+        if dutycycle < 0.0 or dutycycle > 100.0:
+            raise ValueError("dutycycle must have a value from 0.0 to 100.0")
+        
+        self.ChangeDutycycle(dutycycle)
+        return line_hardPWM_start(self.channel, dutycycle)
 
     def stop(self):
-        self.change_duty_cycle(0)
-        self.echo(0, os.path.join(self.pwm_dir, "enable"))
+        line_hardPWM_stop(self.channel)
 
-    def change_duty_cycle(self, duty_cycle: float):
+    def ChangeDutycycle(self, dutycycle):
+        if dutycycle < 0.0 or dutycycle > 100.0:
+            raise ValueError("dutycycle must have a value from 0.0 to 100.0")
         
-        #a value between 0 and 100
-        #0 represents always low.
-        #100 represents always high.
-        
-        if not (0 <= duty_cycle <= 100):
-            raise HardwarePWMException("Duty cycle must be between 0 and 100 (inclusive).")
-        self._duty_cycle = duty_cycle
-        per = 1 / float(self._hz)
-        per *= 1000  # now in milliseconds
-        per *= 1_000_000  # now in nanoseconds
-        dc = int(per * duty_cycle / 100)
-        self.echo(dc, os.path.join(self.pwm_dir, "duty_cycle"))
+        line_pwm_set_dutycycle_lock(self.channel, dutycycle)
 
-    def change_frequency(self, hz: float):
-        if hz < 0.1:
-            raise HardwarePWMException("Frequency can't be lower than 0.1 on the Rpi.")
+    def ChangeFrequency(self, frequency):
+        if frequency <= 0.0:
+            raise ValueError("frequency must be greater than 0.0")
 
-        self._hz = hz
+        line_pwm_set_frequency(self.channel, frequency)
 
-        # we first have to change duty cycle, since https://stackoverflow.com/a/23050835/1895939
-        original_duty_cycle = self._duty_cycle
-        if self._duty_cycle:
-            self.change_duty_cycle(0)
 
-        per = 1 / float(self._hz)
-        per *= 1000  # now in milliseconds
-        per *= 1_000_000  # now in nanoseconds
-        self.echo(int(per), os.path.join(self.pwm_dir, "period"))
-
-        self.change_duty_cycle(original_duty_cycle)
-
-"""
+# TODO: clean up hardPWM in _Line.cleanup() and global cleanup()
+# TODO: Figure out calculations and make numbers consistent with PWM
+# TODO: Write tests 
 
 # === Library initialization ===
 
@@ -1359,6 +1421,7 @@ Reset()
 _LINE_THREAD_TYPE_TO_TARGET = {
     _line_thread_poll:  poll_thread,
     _line_thread_pwm:   pwm_thread,
+    _line_thread_hardPWM:   hardPWM_thread,
 }
 
 # Run cleanup() when an interpreter using this module terminates

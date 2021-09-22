@@ -1,13 +1,11 @@
-#!/bin/python3
-import RPi.GPIO as GPIO
+import core
 import time
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(18, GPIO.OUT)
-pwm = GPIO.PWM(18, 0.5)
+core.setmode(core.BCM)
+pwm = core.HardwarePWM(18, 50)
 pwm.start(50)
 
-time.sleep(5)
+time.sleep(3)
 
 for i in range(10):
     pwm.ChangeFrequency(2 ** i)
