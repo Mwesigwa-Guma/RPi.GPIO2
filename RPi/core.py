@@ -201,7 +201,6 @@ PWMINFO = {
     }
 }
 
-
 # === Internal Data ===
 
 
@@ -1258,7 +1257,6 @@ class PWM:
 
         line_pwm_set_frequency(self.channel, frequency)
 
-
 # Hardware PWM
 
 def hardPWM_thread(channel):
@@ -1283,9 +1281,9 @@ def hardPWM_thread(channel):
                 echo(1, PWMINFO[channel]["ENABLE"])
 
             end_critical_section(channel, msg="do pwm")
-            time.sleep(0.10)
 
     except(ValueError, PermissionError, KeyboardInterrupt):
+        _State.lines[channel].thread_stop()
         end_critical_section(channel, msg="do hardwarePWM sudden exit")
 
 def line_hardPWM_stop(channel):
@@ -1349,9 +1347,6 @@ def channel_fix_and_validate_hardPWM(channel_raw):
     if not (channel in PWMINFO):
         raise ValueError("Invalid channel for Hardware PWM!")
 
-    if line_get_mode(channel) != _line_mode_none:
-        raise RuntimeError("Channel is busy. Try another GPIO pin")
-
     _State.lines[channel].mode = _line_mode_out
     DCprint(channel, "line mode set to", _State.lines[channel].mode)
     
@@ -1362,9 +1357,9 @@ def channel_fix_and_validate_hardPWM(channel_raw):
     return channel
 
 def calculate_period(frequency):
-    per = 1/float(frequency)
+    per = 1 / float(frequency)
     per *= 1000
-    per *= 1_000_1000
+    per *= 1_000_000
 
     return per
 
@@ -1377,9 +1372,13 @@ def line_is_hardPWM(channel):
 class HardwarePWM:
     def __init__(self, channel, frequency):
         self.channel = channel_fix_and_validate_hardPWM(channel) 
+        
+
+        if line_is_hardPWM(channel) and line_pwm_get_frequency(channel) != -1:
+            raise RuntimeError("A hardwarePWM object already exists for this channel")
 
         if frequency <= 0.0:
-            raise ValueError("frequency must be greater 0.0")
+            raise ValueError("frequency must be greater than 0.0")
         
         self.ChangeFrequency(frequency)
 
@@ -1387,13 +1386,13 @@ class HardwarePWM:
         if dutycycle < 0.0 or dutycycle > 100.0:
             raise ValueError("dutycycle must have a value from 0.0 to 100.0")
         
-        self.ChangeDutycycle(dutycycle)
+        self.ChangeDutyCycle(dutycycle)
         return line_hardPWM_start(self.channel, dutycycle)
 
     def stop(self):
         line_hardPWM_stop(self.channel)
 
-    def ChangeDutycycle(self, dutycycle):
+    def ChangeDutyCycle(self, dutycycle):
         if dutycycle < 0.0 or dutycycle > 100.0:
             raise ValueError("dutycycle must have a value from 0.0 to 100.0")
         
@@ -1406,7 +1405,7 @@ class HardwarePWM:
         line_pwm_set_frequency(self.channel, frequency)
 
 
-# TODO: clean up hardPWM in _Line.cleanup() and global cleanup()
+# TODO: clean up hardPWM in _Line.cleanup() and cleanup()
 # TODO: Figure out calculations and make numbers consistent with PWM
 # TODO: Write tests 
 
@@ -1414,6 +1413,7 @@ class HardwarePWM:
 
 
 # Initialize the library with a reset
+
 Reset()
 
 
