@@ -2,7 +2,7 @@ import core
 import time
 
 core.setmode(core.BCM)
-pwm = core.HardwarePWM(19, 50)
+pwm = core.HardwarePWM(19, 0.5)
 pwm.start(50)
 
 time.sleep(3)

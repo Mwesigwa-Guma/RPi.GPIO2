@@ -91,7 +91,7 @@ except AttributeError:
     HIGH = 0
 
 _LINE_ACTIVE_STATE_COSNT_TO_FLAG = {
-    LOW: gpiod.libgpiod.GPIOD_LINE_REQUEST_FLAG_ACTIVE_LOW,
+    LOW: gpiod.LINE_REQ_FLAG_ACTIVE_LOW,
     HIGH: 0,  # Active High is set by the default flag
 }
 
@@ -107,20 +107,20 @@ try:
 except AttributeError:
     PUD_OFF     = gpiod.Line.BIAS_UNKNOWN
 
-PUD_UP      = gpiod.line.BIAS_PULL_UP
-PUD_DOWN    = gpiod.line.BIAS_PULL_DOWN
+PUD_UP      = gpiod.Line.BIAS_PULL_UP
+PUD_DOWN    = gpiod.Line.BIAS_PULL_DOWN
 
 # We extend RPi.GPIO with the ability to explicitly disable pull up/down behavior
-PUD_DISABLE = gpiod.line.BIAS_DISABLE
+PUD_DISABLE = gpiod.Line.BIAS_DISABLED
 
 # libgpiod uses distinct flag values for each line bias constant returned by
 # the gpiod.Line.bias() method. To simplify our translation, we map the latter
 # to the former with the following dictionary
 _LINE_BIAS_CONST_TO_FLAG = {
     PUD_OFF:    0,  # This behavior is indicated with the default flag
-    PUD_UP:     gpiod.libgpiod.GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP,
-    PUD_DOWN:   gpiod.libgpiod.GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_DOWN,
-    PUD_DISABLE: gpiod.libgpiod.GPIOD_LINE_REQUEST_FLAG_BIAS_DISABLE,
+    PUD_UP:     gpiod.LINE_REQ_FLAG_BIAS_PULL_UP,
+    PUD_DOWN:   gpiod.LINE_REQ_FLAG_BIAS_PULL_DOWN,
+    PUD_DISABLE: gpiod.LINE_REQ_FLAG_BIAS_DISABLED,
 }
 
 
@@ -131,14 +131,14 @@ def bias_flag(const):
 
 # Internal line modes
 _line_mode_none     = 0
-_line_mode_in       = gpiod.libgpiod.GPIOD_LINE_REQUEST_DIRECTION_INPUT
-_line_mode_out      = gpiod.libgpiod.GPIOD_LINE_REQUEST_DIRECTION_OUTPUT
-_line_mode_falling  = gpiod.libgpiod.GPIOD_LINE_REQUEST_EVENT_FALLING_EDGE
-_line_mode_rising   = gpiod.libgpiod.GPIOD_LINE_REQUEST_EVENT_RISING_EDGE
-_line_mode_both     = gpiod.libgpiod.GPIOD_LINE_REQUEST_EVENT_BOTH_EDGES
+_line_mode_in       = gpiod.LINE_REQ_DIR_IN
+_line_mode_out      = gpiod.LINE_REQ_DIR_OUT
+_line_mode_falling  = gpiod.LINE_REQ_EV_FALLING_EDGE
+_line_mode_rising   = gpiod.LINE_REQ_EV_RISING_EDGE
+_line_mode_both     = gpiod.LINE_REQ_EV_BOTH_EDGES
 # As of yet unused and unexposed
 # TODO investigate AS_IS kernel behavior
-_line_mode_as_is    = gpiod.libgpiod.GPIOD_LINE_REQUEST_DIRECTION_AS_IS
+_line_mode_as_is    = gpiod.LINE_REQ_DIR_AS_IS
 
 
 # [API] Line event types
@@ -247,8 +247,9 @@ class _Line:
     def thread_stop(self):
         self.thread.kill()
         self.thread = None
+        if self.thread_type == _line_thread_hardPWM:
+            echo(0, PWMINFO[self.channel]["ENABLE"])
         self.thread_type = _line_thread_none
-        echo(0, PWMINFO[self.channel]["ENABLE"])
 
     def cleanup(self):
         if line_is_poll(self.channel):
@@ -441,7 +442,7 @@ def chip_init():
 
     # This is hardcoded for now but that may change soon (or not)
     try:
-        _State.chip = gpiod.chip("/dev/gpiochip0")
+        _State.chip = gpiod.Chip("/dev/gpiochip0")
     except PermissionError:
         print("Unable to access /dev/gpiochip0. Are you sure you have permission?")
         sys.exit()
@@ -449,7 +450,7 @@ def chip_init():
 
 
 def chip_close():
-    _State.chip.reset()
+    _State.chip.close()
     _State.chip = None
 
 
@@ -475,7 +476,7 @@ def chip_close_if_open():
 
 def chip_get_num_lines():
     chip_init_if_needed()
-    return _State.chip.num_lines
+    return _State.chip.num_lines()
 
 
 def chip_destroy():
@@ -1293,7 +1294,7 @@ def line_hardPWM_stop(channel):
         end_critical_section(channel, msg="hardPWM stop")
 
 def line_hardPWM_start(channel, dutycycle):
-    if line_is_hardPWM(channel) and _State.lines[channel].frequency != -1:
+    if not line_is_hardPWM(channel) and _State.lines[channel].frequency != -1:
         begin_critical_section(channel, msg="hardPWM start")
 
         line_pwm_set_dutycycle(channel, dutycycle)
@@ -1350,8 +1351,6 @@ def channel_fix_and_validate_hardPWM(channel_raw):
     _State.lines[channel].mode = _line_mode_out
     DCprint(channel, "line mode set to", _State.lines[channel].mode)
     
-    _State.lines[channel].thread_type = _line_thread_hardPWM
-
     init_hardPWM(channel)
 
     return channel
@@ -1374,7 +1373,7 @@ class HardwarePWM:
         self.channel = channel_fix_and_validate_hardPWM(channel) 
         
 
-        if line_is_hardPWM(channel) and line_pwm_get_frequency(channel) != -1:
+        if line_is_hardPWM(channel) or line_pwm_get_frequency(channel) != -1:
             raise RuntimeError("A hardwarePWM object already exists for this channel")
 
         if frequency <= 0.0:
@@ -1405,9 +1404,9 @@ class HardwarePWM:
         line_pwm_set_frequency(self.channel, frequency)
 
 
-# TODO: clean up hardPWM in _Line.cleanup() and cleanup()
-# TODO: Figure out calculations and make numbers consistent with PWM
-# TODO: Write tests 
+# TODO: after using software pwm, the same channel doesn't produce output if/when used for hardware pwm
+# TODO: write documentation in spec file
+# TODO: Have to run as sudo
 
 # === Library initialization ===
 

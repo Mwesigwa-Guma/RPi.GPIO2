@@ -4,7 +4,7 @@ import RPi.GPIO_DEVEL as GPIO_DEVEL
 import pytest
 
 def test_init():
-    GPIO_DEVEL.Reset()
+    core.Reset()
     core.setmode(core.BCM)
     foo = core.HardwarePWM(19, 1)
     assert foo is foo
@@ -26,7 +26,6 @@ def test_init():
         assert bar is bar
     assert "greater than 0.0" in str(e.value)
 
-"""
 def test_start_stop():
     GPIO_DEVEL.Reset()
     # core.setmode(core.BCM)
@@ -52,7 +51,6 @@ def test_start_stop():
 
     time.sleep(.2)
     foo.stop()
-"""
 
 def test_change_attributes():
 
