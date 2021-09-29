@@ -182,24 +182,53 @@ PWMCHIPPATH = "/sys/class/pwm/pwmchip0"
 EXPORT_PATH = PWMCHIPPATH + "/export"
 UNEXPORT_PATH = PWMCHIPPATH + "/unexport"
 
-PWMINFO = {
-    18 :    {
+PWM0 = {
         "EXPORTVALUE":  0,
         "PWMPATH":      "/sys/class/pwm/pwmchip0/pwm0",
         "ENABLE":       "/sys/class/pwm/pwmchip0/pwm0/enable",
         "PERIOD":       "/sys/class/pwm/pwmchip0/pwm0/period",
         "DUTYCYCLE":    "/sys/class/pwm/pwmchip0/pwm0/duty_cycle"
-    },
+    }
 
-    19 :    {
+PWM1 = {
         "EXPORTVALUE":  1,
         "PWMPATH":      "/sys/class/pwm/pwmchip0/pwm1",
         "ENABLE":       "/sys/class/pwm/pwmchip0/pwm1/enable",
         "PERIOD":       "/sys/class/pwm/pwmchip0/pwm1/period",
         "DUTYCYCLE":    "/sys/class/pwm/pwmchip0/pwm1/duty_cycle"
-        
     }
-}
+
+PWMINFO = {
+        18:     {
+            "EXPORTVALUE":      PWM0["EXPORTVALUE"],
+            "PWMPATH":          PWM0["PWMPATH"],
+            "ENABLE":           PWM0["ENABLE"],
+            "PERIOD":           PWM0["PERIOD"],
+            "DUTYCYCLE":        PWM0["DUTYCYCLE"]
+            },
+        12:     {
+            "EXPORTVALUE":      PWM0["EXPORTVALUE"],
+            "PWMPATH":          PWM0["PWMPATH"],  
+            "ENABLE":           PWM0["ENABLE"],          
+            "PERIOD":           PWM0["PERIOD"],      
+            "DUTYCYCLE":        PWM0["DUTYCYCLE"] 
+            },
+        19:     {
+            "EXPORTVALUE":      PWM1["EXPORTVALUE"],
+            "PWMPATH":          PWM1["PWMPATH"],  
+            "ENABLE":           PWM1["ENABLE"],   
+            "PERIOD":           PWM1["PERIOD"],   
+            "DUTYCYCLE":        PWM1["DUTYCYCLE"] 
+            },
+        13:     {
+            "EXPORTVALUE":      PWM1["EXPORTVALUE"],
+            "PWMPATH":          PWM1["PWMPATH"],  
+            "ENABLE":           PWM1["ENABLE"],   
+            "PERIOD":           PWM1["PERIOD"],   
+            "DUTYCYCLE":        PWM1["DUTYCYCLE"] 
+            }
+    }
+
 
 # === Internal Data ===
 
@@ -249,7 +278,7 @@ class _Line:
         self.thread = None
         if self.thread_type == _line_thread_hardPWM:
             echo(0, PWMINFO[self.channel]["ENABLE"])
-        self.thread_type = _line_thread_none
+        self.mode = _line_mode_none
 
     def cleanup(self):
         if line_is_poll(self.channel):
@@ -500,7 +529,7 @@ def line_set_mode(channel, mode, flags=0):
 
     begin_critical_section(channel, msg="set line_mode")
     if line_get_mode(channel) != _line_mode_none or mode == _line_mode_none:
-        DCprint
+        # DCprint
         _State.lines[channel].cleanup()
 
     if mode != _line_mode_none:
@@ -1287,11 +1316,13 @@ def hardPWM_thread(channel):
         _State.lines[channel].thread_stop()
         end_critical_section(channel, msg="do hardwarePWM sudden exit")
 
+
 def line_hardPWM_stop(channel):
     if line_is_hardPWM(channel):
         begin_critical_section(channel, msg="hardPWM stop")
         _State.lines[channel].thread_stop()
         end_critical_section(channel, msg="hardPWM stop")
+
 
 def line_hardPWM_start(channel, dutycycle):
     if not line_is_hardPWM(channel) and _State.lines[channel].frequency != -1:
@@ -1306,22 +1337,22 @@ def line_hardPWM_start(channel, dutycycle):
         warn("invalid call to start(). Did you call HardwarePWM.__init__() on this channel?")
         return False
 
+
 def validate_pwmchip0_exists():
     return os.path.isdir(PWMCHIPPATH)
+
 
 def echo (message: int, filename: str):
     with open(filename, "w") as file:
         file.write(f"{message}")
+
 
 def cat (filename: str):
     with open(filename, "r") as file:
         return file.read()
 
 
-def init_hardPWM(channel):
-    if not validate_pwmchip0_exists():
-        raiseRuntimeError("Add 'dtoverlay=pwm-2chan' to /boot/config.txt and reboot")
-
+def init_hardPWM_if_needed(channel):
     try:
         if not os.path.isdir(PWMINFO[channel]["PWMPATH"]):
             echo(PWMINFO[channel]["EXPORTVALUE"], EXPORT_PATH)
@@ -1348,12 +1379,45 @@ def channel_fix_and_validate_hardPWM(channel_raw):
     if not (channel in PWMINFO):
         raise ValueError("Invalid channel for Hardware PWM!")
 
+    if not validate_pwmchip0_exists():
+        raise RuntimeError("Add 'dtoverlay=pwm-2chan' or 'dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4' to use gpio 18,19 or 12,13")
+    
+    if not validate_chan_matches_config(channel):
+        raise RuntimeError("Change config to match gpio channel\n Add 'dtoverlay=pwm-2chan' for gpio 18,19 or 'dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4' for gpio 12,13 in /boot/config.txt")
+
     _State.lines[channel].mode = _line_mode_out
     DCprint(channel, "line mode set to", _State.lines[channel].mode)
     
-    init_hardPWM(channel)
+    init_hardPWM_if_needed(channel)
 
     return channel
+
+
+def validate_chan_matches_config(channel):
+    if channel in [12, 13]:
+        return search_config("dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4")
+    elif channel in [18, 19]:
+        if search_config("dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4"):
+            return False
+        else:
+            return search_config("dtoverlay=pwm-2chan")
+
+
+def search_config(pwm_config : str):
+    conf_file = ""
+    if os.path.exists("/boot/config.txt"):
+        conf_file = "/boot/config.txt"
+    elif os.path.exists("/boot/efi/config.txt"):
+        conf_file = "/boot/efi/config.txt"
+
+    with open(conf_file) as file:
+        for line in file:
+            if line.startswith("#"):
+                continue
+            elif pwm_config in line:
+                return True
+    return False
+
 
 def calculate_period(frequency):
     per = 1 / float(frequency)
@@ -1361,6 +1425,7 @@ def calculate_period(frequency):
     per *= 1_000_000
 
     return per
+
 
 def line_is_hardPWM(channel):
     DCprint(channel, "checking if channel is hardPWM:", _State.lines[channel].thread_type == _line_thread_hardPWM)
@@ -1371,7 +1436,6 @@ def line_is_hardPWM(channel):
 class HardwarePWM:
     def __init__(self, channel, frequency):
         self.channel = channel_fix_and_validate_hardPWM(channel) 
-        
 
         if line_is_hardPWM(channel) or line_pwm_get_frequency(channel) != -1:
             raise RuntimeError("A hardwarePWM object already exists for this channel")
@@ -1407,6 +1471,9 @@ class HardwarePWM:
 # TODO: after using software pwm, the same channel doesn't produce output if/when used for hardware pwm
 # TODO: write documentation in spec file
 # TODO: Have to run as sudo
+#   Fix: (udev rules) https://community.emlid.com/t/need-to-configure-non-root-pwm-access/16501/11
+# TODO: fix cleanup
+
 
 # === Library initialization ===
 

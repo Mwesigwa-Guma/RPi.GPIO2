@@ -10,7 +10,7 @@ core.setmode(core.BOARD)
 
 pwm = core.HardwarePWM(35, 60)
 pwm.start(50)
-pwm.ChangeDutycycle(50)
+pwm.ChangeDutyCycle(50)
 time.sleep(3)
 pwm.ChangeFrequency(25_000)
 pwm.stop()
