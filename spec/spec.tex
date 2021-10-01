@@ -479,6 +479,85 @@ Stop software PwM on the channel specified in \texttt{\_\_init\_\_}.
 
 \medskip \medskip
 
+\subsection{Class \texttt{RPi.GPIO.HardwarePWM}} \label{hardwarepwm}
+    
+\texttt{RPi.GPIO.HardwarePWM} is a Hardware Pulse-width Modulation (Hardware PwM) class. Object methods follow.
+
+\medskip \medskip
+
+\noindent \texttt{RPi.GPIO.HardwarePWM}.\textbf{ChageDutyCycle}(dutycycle)
+        
+Change the duty cycle of the Hardware PwM channel to \texttt{dutycycle}
+        
+\textit{parameters}:
+\begin{enumerate}      
+        \item dutycycle --- percentage of pulse period to output high voltage
+\end{enumerate}
+ 
+ 
+\textit{exceptions}:
+\begin{itemize}
+    \item ValueError --- Invalid dutycycle value
+\end{itemize}
+
+\noindent \texttt{RPi.GPIO.HardwarePWM}.\textbf{ChangeFrequency}(frequency)
+        
+Change the frequency the Hardware PwM channel to \texttt{frequency}
+        
+\textit{parameters}:
+\begin{enumerate}      
+        \item frequency --- pulse periodicity in hz
+\end{enumerate}
+ 
+ 
+\textit{exceptions}:
+\begin{itemize}
+    \item ValueError --- Invalid frequency value
+\end{itemize}
+
+\noindent \texttt{RPi.GPIO.HardwarePWM}.\textbf{\_\_init\_\_}(channel, frequency)
+        
+Initialize a new HardwarePwM object. Commonly invoked via:
+
+\texttt{RPi.GPIO.HardwarePWM(channel, frequency)}
+
+\textit{parameters}:
+\begin{enumerate}
+        \item channel --- GPIO channel
+        \item frequency --- A positive float value
+\end{enumerate}
+ 
+ 
+\textit{exceptions}:
+\begin{itemize}
+    \item ValueError --- Invalid frequency value
+    \item RuntimeError --- HardwarePwM already setup on \texttt{channel}
+    % or channel not setup in direction OUT (but should this be in the spec?
+    % TODO
+\end{itemize}
+
+\noindent \texttt{RPi.GPIO.HardwarePWM}.\textbf{start}(dutycycle)
+        
+Start Hardware PwM on the channel specified in \texttt{\_\_init\_\_}.
+
+\textit{parameters}:
+\begin{enumerate}      
+        \item dutycycle --- A value between 0.0 and 100.0
+\end{enumerate}
+ 
+ 
+\textit{exceptions}:
+\begin{itemize}
+    \item ValueError --- Invalid duty cycle
+\end{itemize}
+
+\noindent \texttt{RPi.GPIO.HardwarePWM}.\textbf{stop}()
+        
+Stop Hardware PwM on the channel specified in \texttt{\_\_init\_\_}.
+
+\medskip \medskip
+
+
 \subsection{Data}
 
 \noindent \texttt{RPi.GPIO}.\textbf{BCM}
