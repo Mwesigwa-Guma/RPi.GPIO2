@@ -1436,7 +1436,7 @@ def line_is_hardPWM(channel):
 class HardwarePWM:
     def __init__(self, channel, frequency):
         self.channel = channel_fix_and_validate_hardPWM(channel) 
-
+        cleanup()
         if line_is_hardPWM(channel) or line_pwm_get_frequency(channel) != -1:
             raise RuntimeError("A hardwarePWM object already exists for this channel")
 
